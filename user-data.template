@@ -1,0 +1,81 @@
+#cloud-config
+
+---
+coreos:
+  etcd:
+    discovery: https://discovery.etcd.io/REPLACE-WITH-REAL-TOKEN
+    addr: $public_ipv4:4001
+    peer-addr: $public_ipv4:7001
+  fleet:
+    public-ip: $public_ipv4
+  units:
+  - name: etcd.service
+    command: start
+  - name: fleet.service
+    command: start
+  - name: docker-tcp.socket
+    command: start
+    enable: true
+    content: |
+      [Unit]
+      Description=Docker Socket for the API
+
+      [Socket]
+      ListenStream=2375
+      Service=docker.service
+      BindIPv6Only=both
+
+      [Install]
+      WantedBy=sockets.target
+  - name: mongo.service
+    command: start
+    enable: true
+    content: |
+      [Unit]
+      Description=mongod service
+      After=docker.service
+      Requires=docker.service
+      After=etcd.service
+      Requires=etcd.service
+      
+      [Service]
+      #KillMode=none
+      TimeoutStartSec=0
+      #TimeoutStopSec=360
+      EnvironmentFile=/etc/environment
+      ExecStartPre=/bin/bash -c "/usr/bin/docker pull mongo:latest"
+      ExecStartPre=-/bin/bash -c "/usr/bin/docker rm -f mongodb"
+      ExecStart=/usr/bin/docker run --rm --name mongodb -it mongo
+      ExecStop=/usr/bin/docker stop -t 60 mongodb
+      #Restart=on-failure
+      
+      #[X-Fleet]
+      #X-Conflicts=%p@*.service
+      #Conflicts=%p@*.service
+  - name: mui.service
+    command: start
+    enable: true
+    content: |
+      [Unit]
+      Description=MongoUI
+      After=docker.service
+      Requires=docker.service
+      After=etcd.service
+      Requires=etcd.service
+      After=mongo.service
+      Requires=mongo.service
+      
+      [Service]
+      #KillMode=none
+      TimeoutStartSec=0
+      #TimeoutStopSec=360
+      EnvironmentFile=/etc/environment
+      ExecStartPre=/bin/bash -c "/usr/bin/docker pull kim0/mongoui"
+      ExecStartPre=-/bin/bash -c "/usr/bin/docker rm -f mui"
+      ExecStart=/usr/bin/docker run --rm --name mui --link mongodb:mongo -it -p 3000:3000 kim0/mongoui
+      ExecStop=/usr/bin/docker stop -t 60 mui
+      #Restart=on-failure
+      
+      #[X-Fleet]
+      #X-Conflicts=%p@*.service
+      #Conflicts=%p@*.service
